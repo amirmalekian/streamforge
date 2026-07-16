@@ -1,0 +1,25 @@
+# Binaries
+*.exe
+*.out
+*.bin
+
+# Test files
+*.test
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Build
+/bin
+/dist
