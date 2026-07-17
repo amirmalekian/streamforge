@@ -1,0 +1,352 @@
+package api
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"streamforge/internal/auth"
+	"streamforge/internal/jobs"
+	"streamforge/internal/middleware"
+	"streamforge/internal/redis"
+	"streamforge/internal/worker"
+)
+
+func RegisterRoutes(
+	r *gin.Engine,
+	authSvc *auth.Service,
+	jobSvc *jobs.Service,
+	workerPool *worker.Pool,
+	redisClient *redis.Client,
+) {
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "timestamp": time.Now()})
+	})
+
+	authGroup := r.Group("/api/v1/auth")
+	{
+		authGroup.POST("/register", registerHandler(authSvc))
+		authGroup.POST("/login", loginHandler(authSvc))
+	}
+
+	api := r.Group("/api/v1")
+	api.Use(middleware.AuthMiddleware(authSvc))
+	{
+		jobsGroup := api.Group("/jobs")
+		{
+			jobsGroup.POST("", createJobHandler(jobSvc, workerPool))
+			jobsGroup.GET("", listJobsHandler(jobSvc))
+			jobsGroup.GET("/:id", getJobHandler(jobSvc))
+			jobsGroup.DELETE("/:id", cancelJobHandler(jobSvc))
+			jobsGroup.GET("/:id/events", sseHandler(jobSvc, redisClient))
+			jobsGroup.GET("/:id/items", getMediaItemsHandler(jobSvc))
+		}
+	}
+}
+
+func registerHandler(svc *auth.Service) gin.HandlerFunc {
+	type request struct {
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required,min=8"`
+	}
+
+	return func(c *gin.Context) {
+		var req request
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+
+		resp, err := svc.Register(c.Request.Context(), auth.RegisterRequest{
+			Email:    req.Email,
+			Password: req.Password,
+		})
+		if err != nil {
+			if err == auth.ErrUserExists {
+				c.JSON(http.StatusConflict, gin.H{"error": "user already exists"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "registration failed"})
+			return
+		}
+
+		c.JSON(http.StatusCreated, resp)
+	}
+}
+
+func loginHandler(svc *auth.Service) gin.HandlerFunc {
+	type request struct {
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required"`
+	}
+
+	return func(c *gin.Context) {
+		var req request
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+
+		resp, err := svc.Login(c.Request.Context(), auth.LoginRequest{
+			Email:    req.Email,
+			Password: req.Password,
+		})
+		if err != nil {
+			if err == auth.ErrInvalidCredentials {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "login failed"})
+			return
+		}
+
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+func createJobHandler(svc *jobs.Service, pool *worker.Pool) gin.HandlerFunc {
+	type request struct {
+		SourceURL string `json:"source_url" binding:"required,url"`
+	}
+
+	return func(c *gin.Context) {
+		userIDStr := c.GetString("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		var req request
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+
+		resp, err := svc.CreateJob(c.Request.Context(), userIDStr, req.SourceURL)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create job"})
+			return
+		}
+
+		if err := pool.Submit(resp.ID.String(), req.SourceURL); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue job", "details": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusCreated, resp)
+	}
+}
+
+func listJobsHandler(svc *jobs.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.GetString("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		page := 1
+		if p := c.Query("page"); p != "" {
+			fmt.Sscanf(p, "%d", &page)
+			if page < 1 {
+				page = 1
+			}
+		}
+
+		pageSize := 20
+		if ps := c.Query("page_size"); ps != "" {
+			fmt.Sscanf(ps, "%d", &pageSize)
+			if pageSize < 1 || pageSize > 100 {
+				pageSize = 20
+			}
+		}
+
+		status := c.Query("status")
+
+		resp, total, err := svc.ListJobs(c.Request.Context(), userIDStr, status, pageSize, (page-1)*pageSize)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list jobs"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"jobs": resp,
+			"pagination": gin.H{
+				"page":         page,
+				"page_size":    pageSize,
+				"total":        total,
+				"total_pages":  (total + pageSize - 1) / pageSize,
+			},
+		})
+	}
+}
+
+func getJobHandler(svc *jobs.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.GetString("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		jobID := c.Param("id")
+
+		resp, err := svc.GetJob(c.Request.Context(), userIDStr, jobID)
+		if err != nil {
+			if err == jobs.ErrJobNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+				return
+			}
+			if err == jobs.ErrUnauthorized {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get job"})
+			return
+		}
+
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+func cancelJobHandler(svc *jobs.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.GetString("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		jobID := c.Param("id")
+
+		if err := svc.CancelJob(c.Request.Context(), userIDStr, jobID); err != nil {
+			if err == jobs.ErrJobNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+				return
+			}
+			if err == jobs.ErrUnauthorized {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			if err == jobs.ErrCannotCancel {
+				c.JSON(http.StatusConflict, gin.H{"error": "cannot cancel", "message": "job is in terminal state"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to cancel job"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "job cancelled"})
+	}
+}
+
+func sseHandler(svc *jobs.Service, redisClient *redis.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.GetString("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		jobID := c.Param("id")
+
+		job, err := svc.GetJob(c.Request.Context(), userIDStr, jobID)
+		if err != nil {
+			if err == jobs.ErrJobNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+				return
+			}
+			if err == jobs.ErrUnauthorized {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get job"})
+			return
+		}
+
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("Access-Control-Allow-Origin", "*")
+
+		clientChan := make(chan string)
+		defer close(clientChan)
+
+		go func() {
+			for {
+				select {
+				case <-c.Request.Context().Done():
+					return
+				case msg := <-clientChan:
+					c.SSEvent("message", msg)
+					c.Writer.Flush()
+				}
+			}
+		}()
+
+		svc.Subscribe(c.Request.Context(), jobID, clientChan)
+
+		// Send initial connection event
+		c.SSEvent("connected", gin.H{"job_id": jobID, "status": job.Status})
+		c.Writer.Flush()
+
+		// Keep connection alive
+		<-c.Request.Context().Done()
+	}
+}
+
+func getMediaItemsHandler(svc *jobs.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDStr := c.GetString("user_id")
+		if userIDStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		jobID := c.Param("id")
+
+		page := 1
+		if p := c.Query("page"); p != "" {
+			fmt.Sscanf(p, "%d", &page)
+			if page < 1 {
+				page = 1
+			}
+		}
+
+		pageSize := 20
+		if ps := c.Query("page_size"); ps != "" {
+			fmt.Sscanf(ps, "%d", &pageSize)
+			if pageSize < 1 || pageSize > 100 {
+				pageSize = 20
+			}
+		}
+
+		status := c.Query("status")
+
+		resp, total, err := svc.GetMediaItems(c.Request.Context(), userIDStr, jobID, status, pageSize, (page-1)*pageSize)
+		if err != nil {
+			if err == jobs.ErrJobNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+				return
+			}
+			if err == jobs.ErrUnauthorized {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get media items"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"items": resp,
+			"pagination": gin.H{
+				"page":         page,
+				"page_size":    pageSize,
+				"total":        total,
+				"total_pages":  (total + pageSize - 1) / pageSize,
+			},
+		})
+	}
+}
