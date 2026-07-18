@@ -83,7 +83,7 @@ func (s *Service) CreateJob(ctx context.Context, userID, sourceURL string) (*Job
 		return nil, err
 	}
 
-	s.redis.SetProgress(ctx, job.ID.String(), &redis.Progress{
+	_ = s.redis.SetProgress(ctx, job.ID.String(), &redis.Progress{
 		Total:      0,
 		Completed:  0,
 		Percentage: 0,
@@ -160,9 +160,9 @@ func (s *Service) CancelJob(ctx context.Context, userID, jobID string) error {
 		return err
 	}
 
-	s.redis.SetJobStatus(ctx, jobID, "CANCELLED")
-	s.redis.DeleteProgress(ctx, jobID)
-	s.repo.UpdateMediaItemsStatus(ctx, jobID, "CANCELLED")
+	_ = s.redis.SetJobStatus(ctx, jobID, "CANCELLED")
+	_ = s.redis.DeleteProgress(ctx, jobID)
+	_ = s.repo.UpdateMediaItemsStatus(ctx, jobID, "CANCELLED")
 
 	return nil
 }
@@ -195,7 +195,7 @@ func (s *Service) SetJobTotalItems(ctx context.Context, jobID string, total int)
 		if total > 0 {
 			progress.Percentage = (progress.Completed * 100) / total
 		}
-		s.redis.SetProgress(ctx, jobID, progress)
+		_ = s.redis.SetProgress(ctx, jobID, progress)
 	}
 
 	return nil
@@ -234,7 +234,7 @@ func (s *Service) CreateMediaItems(ctx context.Context, jobID string, items []Me
 	}
 
 	total := len(items)
-	s.SetJobTotalItems(ctx, jobID, total)
+	_ = s.SetJobTotalItems(ctx, jobID, total)
 
 	for _, input := range items {
 		params := database.CreateMediaItemParams{
@@ -311,7 +311,7 @@ func (s *Service) PublishEvent(ctx context.Context, jobID, eventType string, dat
 	}
 
 	if s.redis != nil {
-		s.redis.PublishJobEvent(ctx, jobID, eventType, data)
+		_ = s.redis.PublishJobEvent(ctx, jobID, eventType, data)
 	}
 }
 

@@ -65,7 +65,7 @@ func (p *Pool) processTask(task queue.Message) {
 	jobID := task.JobID
 	ctx := p.ctx
 
-	p.jobService.UpdateJobStatus(ctx, jobID, "PROCESSING", "")
+	_ = p.jobService.UpdateJobStatus(ctx, jobID, "PROCESSING", "")
 
 	progress, _ := p.redis.GetProgress(ctx, jobID)
 	if progress == nil {
@@ -75,19 +75,19 @@ func (p *Pool) processTask(task queue.Message) {
 			Percentage: 0,
 			Status:     "PROCESSING",
 		}
-		p.redis.SetProgress(ctx, jobID, progress)
+		_ = p.redis.SetProgress(ctx, jobID, progress)
 	}
 
 	items, _, err := p.jobService.GetMediaItems(ctx, "", jobID, "", 100, 0)
 	if err != nil {
-		p.jobService.UpdateJobStatus(ctx, jobID, "FAILED", err.Error())
+		_ = p.jobService.UpdateJobStatus(ctx, jobID, "FAILED", err.Error())
 		return
 	}
 
 	if len(items) == 0 {
-		p.jobService.SetJobTotalItems(ctx, jobID, 10)
+		_ = p.jobService.SetJobTotalItems(ctx, jobID, 10)
 		for i := 1; i <= 10; i++ {
-			p.jobService.CreateMediaItems(ctx, jobID, []jobs.MediaItemInput{
+			_ = p.jobService.CreateMediaItems(ctx, jobID, []jobs.MediaItemInput{
 				{Title: fmt.Sprintf("Media Item %d", i), SourceURL: fmt.Sprintf("https://example.com/media/%d.mp4", i)},
 			})
 		}
@@ -101,22 +101,22 @@ func (p *Pool) processTask(task queue.Message) {
 		default:
 		}
 
-		p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "PROCESSING", 0, "")
+		_ = p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "PROCESSING", 0, "")
 
 		p.simulateProcessing(item.ID)
 
-		p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "COMPLETED", 100, "")
+		_ = p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "COMPLETED", 100, "")
 
 		updated, _ := p.redis.IncrementProgress(ctx, jobID)
 		if updated != nil {
-			p.redis.PublishJobEvent(ctx, jobID, "progress", updated)
-			p.jobService.UpdateJobProgress(ctx, jobID, updated.Completed)
+			_ = p.redis.PublishJobEvent(ctx, jobID, "progress", updated)
+			_ = p.jobService.UpdateJobProgress(ctx, jobID, updated.Completed)
 		}
 	}
 
-	p.jobService.UpdateJobStatus(ctx, jobID, "COMPLETED", "")
-	p.redis.SetJobStatus(ctx, jobID, "COMPLETED")
-	p.redis.PublishJobEvent(ctx, jobID, "complete", map[string]string{"status": "COMPLETED"})
+	_ = p.jobService.UpdateJobStatus(ctx, jobID, "COMPLETED", "")
+	_ = p.redis.SetJobStatus(ctx, jobID, "COMPLETED")
+	_ = p.redis.PublishJobEvent(ctx, jobID, "complete", map[string]string{"status": "COMPLETED"})
 }
 
 func (p *Pool) simulateProcessing(itemID uuid.UUID) {

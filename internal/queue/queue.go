@@ -148,18 +148,18 @@ func (s *Service) Consume(ctx context.Context, jobChan chan<- Message) error {
 
 				var msg Message
 				if err := json.Unmarshal(delivery.Body, &msg); err != nil {
-					delivery.Nack(false, false)
+					_ = delivery.Nack(false, false)
 					continue
 				}
 
 				select {
 				case jobChan <- msg:
-					delivery.Ack(false)
+					_ = delivery.Ack(false)
 				case <-ctx.Done():
-					delivery.Nack(false, true)
+					_ = delivery.Nack(false, true)
 					return
 				default:
-					delivery.Nack(false, true)
+					_ = delivery.Nack(false, true)
 				}
 			}
 		}
@@ -173,11 +173,11 @@ func (s *Service) Close() error {
 	defer s.mu.Unlock()
 
 	if s.channel != nil {
-		s.channel.Close()
+		_ = s.channel.Close()
 		s.channel = nil
 	}
 	if s.conn != nil {
-		s.conn.Close()
+		_ = s.conn.Close()
 		s.conn = nil
 	}
 	return nil

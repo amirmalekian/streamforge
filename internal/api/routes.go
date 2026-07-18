@@ -1,8 +1,8 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -149,17 +149,15 @@ func listJobsHandler(svc *jobs.Service) gin.HandlerFunc {
 
 		page := 1
 		if p := c.Query("page"); p != "" {
-			fmt.Sscanf(p, "%d", &page)
-			if page < 1 {
-				page = 1
+			if v, err := strconv.Atoi(p); err == nil {
+				page = v
 			}
 		}
 
 		pageSize := 20
 		if ps := c.Query("page_size"); ps != "" {
-			fmt.Sscanf(ps, "%d", &pageSize)
-			if pageSize < 1 || pageSize > 100 {
-				pageSize = 20
+			if v, err := strconv.Atoi(ps); err == nil {
+				pageSize = v
 			}
 		}
 
@@ -309,17 +307,15 @@ func getMediaItemsHandler(svc *jobs.Service) gin.HandlerFunc {
 
 		page := 1
 		if p := c.Query("page"); p != "" {
-			fmt.Sscanf(p, "%d", &page)
-			if page < 1 {
-				page = 1
+			if v, err := strconv.Atoi(p); err == nil {
+				page = v
 			}
 		}
 
 		pageSize := 20
 		if ps := c.Query("page_size"); ps != "" {
-			fmt.Sscanf(ps, "%d", &pageSize)
-			if pageSize < 1 || pageSize > 100 {
-				pageSize = 20
+			if v, err := strconv.Atoi(ps); err == nil {
+				pageSize = v
 			}
 		}
 

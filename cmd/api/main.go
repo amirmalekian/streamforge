@@ -37,13 +37,21 @@ func main() {
 	defer dbPool.Close()
 
 	redisClient := redis.Connect(cfg.Redis.Addr(), cfg.Redis.Password, cfg.Redis.DB)
-	defer redisClient.Close()
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			log.Printf("failed to close redis client: %v", err)
+		}
+	}()
 
 	rabbitConn, err := queue.Connect(cfg.RabbitMQ)
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 	}
-	defer rabbitConn.Close()
+	defer func() {
+		if err := rabbitConn.Close(); err != nil {
+			log.Printf("failed to close rabbitmq connection: %v", err)
+		}
+	}()
 
 	repo := database.NewRepository(dbPool.Pool)
 	authSvc := auth.NewService(repo, cfg.JWT)
