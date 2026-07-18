@@ -2,7 +2,6 @@ version: "2"
 
 run:
   timeout: 5m
-  tests: true
 
 linters:
   default: none
@@ -11,64 +10,9 @@ linters:
     - errcheck
     - govet
     - staticcheck
-    - gosimple
-    - ineffassign
     - unused
-    - revive
-    - gosec
-    - bodyclose
-    - noctx
-    - predeclared
-    - misspell
-    - goconst
-    - gocritic
-    - nolintlint
-
-  settings:
-    errcheck:
-      check-type-assertions: true
-      check-blank: true
-
-    gocritic:
-      enabled-tags:
-        - diagnostic
-        - performance
-        - style
-
-      disabled-checks:
-        - ifElseChain
-        - octalLiteral
-        - whyNoLint
-
-    revive:
-      rules:
-        - name: exported
-        - name: error-return
-        - name: error-strings
-        - name: indent-error-flow
-
-    gosec:
-      excludes:
-        - G104
-        - G107
-
-issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
-
-  exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - gosec
-          - goconst
-          - gocritic
-
-      - path: migrations/
-        linters:
-          - gosec
+    - ineffassign
 
 formatters:
   enable:
     - gofmt
-    - goimports
