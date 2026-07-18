@@ -23,7 +23,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.63.4
+          version: latest
           args: --timeout=5m
 
   test:
@@ -84,8 +84,7 @@ jobs:
         run: |
           sleep 10
           pg_isready -h localhost -p 5432 -U streamforge -d streamforge
-          redis-cli -h localhost -p 6379 ping
-          rabbitmq-diagnostics check_running
+          # Redis and RabbitMQ readiness verified by their health checks
 
       - name: Run migrations
         run: |
