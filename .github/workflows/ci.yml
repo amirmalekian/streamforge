@@ -9,6 +9,7 @@ on:
 env:
   GO_VERSION: '1.23'
   DATABASE_URL: postgres://streamforge:streamforge@localhost:5432/streamforge?sslmode=disable
+  GOLANGCI_LINT_VERSION: v1.63.4
 
 jobs:
   lint:
@@ -27,7 +28,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
 
   test:
@@ -83,6 +84,9 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
+
+      - name: Install redis-cli
+        run: sudo apt-get update && sudo apt-get install -y redis-tools
 
       - name: Wait for services
         run: |
