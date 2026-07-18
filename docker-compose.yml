@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: streamforge-postgres
+    environment:
+      POSTGRES_DB: streamforge
+      POSTGRES_USER: streamforge
+      POSTGRES_PASSWORD: streamforge_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/migrations
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streamforge -d streamforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: streamforge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: streamforge-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: streamforge
+      RABBITMQ_DEFAULT_PASS: streamforge_dev
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamforge-api
+    environment:
+      DATABASE_URL: postgres://streamforge:streamforge_dev@postgres:5432/streamforge?sslmode=disable
+      DATABASE_MAX_CONNS: "25"
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      REDIS_POOL_SIZE: "10"
+      RABBITMQ_URL: amqp://streamforge:streamforge_dev@rabbitmq:5672/
+      QUEUE_EXCHANGE: streamforge.exchange
+      QUEUE_NAME: media.processing.queue
+      QUEUE_ROUTING_KEY: media.process
+      JWT_SECRET: dev-secret-change-in-production
+      JWT_EXPIRY: 24h
+      WORKER_COUNT: "4"
+      RATE_LIMIT: "100"
+      GIN_MODE: debug
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/vendor
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: streamforge-worker
+    environment:
+      DATABASE_URL: postgres://streamforge:streamforge_dev@postgres:5432/streamforge?sslmode=disable
+      DATABASE_MAX_CONNS: "10"
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      REDIS_POOL_SIZE: "10"
+      RABBITMQ_URL: amqp://streamforge:streamforge_dev@rabbitmq:5672/
+      QUEUE_EXCHANGE: streamforge.exchange
+      QUEUE_NAME: media.processing.queue
+      QUEUE_ROUTING_KEY: media.process
+      WORKER_COUNT: "4"
+      GIN_MODE: release
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
