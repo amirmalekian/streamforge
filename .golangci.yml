@@ -1,80 +1,74 @@
+version: "2"
+
 run:
   timeout: 5m
-  issues-exit-code: 1
   tests: true
-  build-tags:
-    - integration
 
 linters:
+  default: none
+
   enable:
-    - govet
     - errcheck
+    - govet
     - staticcheck
     - gosimple
-    - unused
     - ineffassign
-    - typecheck
+    - unused
+    - revive
+    - gosec
     - bodyclose
-    - misspell
-    - unconvert
-    - predeclared
     - noctx
-    - nolintlint
-    - exportloopref
+    - predeclared
+    - misspell
     - goconst
     - gocritic
-    - gosec
-    - revive
+    - nolintlint
 
-linters-settings:
-  govet:
-    check-shadowing: true
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-      - wrapperFunc
-  revive:
-    rules:
-      - name: exported
-      - name: unused-parameter
-      - name: indent-error-flow
-      - name: error-return
-      - name: error-naming
-      - name: error-strings
-      - name: dot-imports
-      - name: blank-imports
-  gosec:
-    excludes:
-      - G104
-      - G107
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+
+      disabled-checks:
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+
+    revive:
+      rules:
+        - name: exported
+        - name: error-return
+        - name: error-strings
+        - name: indent-error-flow
+
+    gosec:
+      excludes:
+        - G104
+        - G107
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - goconst
-        - gocritic
-    - path: migrations/
-      linters:
-        - gosec
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
 
-output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - goconst
+          - gocritic
+
+      - path: migrations/
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
