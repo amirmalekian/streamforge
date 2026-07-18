@@ -174,10 +174,10 @@ func listJobsHandler(svc *jobs.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"jobs": resp,
 			"pagination": gin.H{
-				"page":         page,
-				"page_size":    pageSize,
-				"total":        total,
-				"total_pages":  (total + pageSize - 1) / pageSize,
+				"page":        page,
+				"page_size":   pageSize,
+				"total":       total,
+				"total_pages": (total + pageSize - 1) / pageSize,
 			},
 		})
 	}
@@ -342,10 +342,10 @@ func getMediaItemsHandler(svc *jobs.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"items": resp,
 			"pagination": gin.H{
-				"page":         page,
-				"page_size":    pageSize,
-				"total":        total,
-				"total_pages":  (total + pageSize - 1) / pageSize,
+				"page":        page,
+				"page_size":   pageSize,
+				"total":       total,
+				"total_pages": (total + pageSize - 1) / pageSize,
 			},
 		})
 	}

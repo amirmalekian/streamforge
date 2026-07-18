@@ -77,15 +77,15 @@ func (r *Repository) GetUserByID(ctx context.Context, id uuid.UUID) (*User, erro
 }
 
 type Job struct {
-	ID              uuid.UUID
-	UserID          uuid.UUID
-	SourceURL       string
-	Status          string
-	TotalItems      int
-	CompletedItems  int
-	ErrorMessage    string
-	CreatedAt       string
-	UpdatedAt       string
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	SourceURL      string
+	Status         string
+	TotalItems     int
+	CompletedItems int
+	ErrorMessage   string
+	CreatedAt      string
+	UpdatedAt      string
 }
 
 func (r *Repository) CreateJob(ctx context.Context, userID uuid.UUID, sourceURL string) (*Job, error) {
@@ -200,16 +200,16 @@ func (r *Repository) SetJobTotalItems(ctx context.Context, jobID string, total i
 }
 
 type MediaItem struct {
-	ID            uuid.UUID
-	JobID         uuid.UUID
-	Title         string
-	SourceURL     string
-	Status        string
-	Progress      int
-	SizeBytes     int64
-	ErrorMessage  string
-	CreatedAt     string
-	UpdatedAt     string
+	ID           uuid.UUID
+	JobID        uuid.UUID
+	Title        string
+	SourceURL    string
+	Status       string
+	Progress     int
+	SizeBytes    int64
+	ErrorMessage string
+	CreatedAt    string
+	UpdatedAt    string
 }
 
 type CreateMediaItemParams struct {

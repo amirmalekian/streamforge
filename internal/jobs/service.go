@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	ErrJobNotFound     = errors.New("job not found")
-	ErrUnauthorized    = errors.New("unauthorized")
-	ErrCannotCancel    = errors.New("cannot cancel job")
-	ErrInvalidRequest  = errors.New("invalid request")
+	ErrJobNotFound    = errors.New("job not found")
+	ErrUnauthorized   = errors.New("unauthorized")
+	ErrCannotCancel   = errors.New("cannot cancel job")
+	ErrInvalidRequest = errors.New("invalid request")
 )
 
 type Service struct {
@@ -34,29 +34,29 @@ type CreateJobRequest struct {
 }
 
 type JobResponse struct {
-	ID               uuid.UUID `json:"id"`
-	UserID           uuid.UUID `json:"user_id"`
-	SourceURL        string    `json:"source_url"`
-	Status           string    `json:"status"`
-	TotalItems       int       `json:"total_items"`
-	CompletedItems   int       `json:"completed_items"`
-	ProgressPercent  int       `json:"progress_percentage"`
-	ErrorMessage     string    `json:"error_message,omitempty"`
-	CreatedAt        string    `json:"created_at"`
-	UpdatedAt        string    `json:"updated_at"`
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	SourceURL       string    `json:"source_url"`
+	Status          string    `json:"status"`
+	TotalItems      int       `json:"total_items"`
+	CompletedItems  int       `json:"completed_items"`
+	ProgressPercent int       `json:"progress_percentage"`
+	ErrorMessage    string    `json:"error_message,omitempty"`
+	CreatedAt       string    `json:"created_at"`
+	UpdatedAt       string    `json:"updated_at"`
 }
 
 type MediaItemResponse struct {
-	ID            uuid.UUID `json:"id"`
-	JobID         uuid.UUID `json:"job_id"`
-	Title         string    `json:"title"`
-	SourceURL     string    `json:"source_url"`
-	Status        string    `json:"status"`
-	Progress      int       `json:"progress"`
-	SizeBytes     int64     `json:"size_bytes"`
-	ErrorMessage  string    `json:"error_message,omitempty"`
-	CreatedAt     string    `json:"created_at"`
-	UpdatedAt     string    `json:"updated_at"`
+	ID           uuid.UUID `json:"id"`
+	JobID        uuid.UUID `json:"job_id"`
+	Title        string    `json:"title"`
+	SourceURL    string    `json:"source_url"`
+	Status       string    `json:"status"`
+	Progress     int       `json:"progress"`
+	SizeBytes    int64     `json:"size_bytes"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+	CreatedAt    string    `json:"created_at"`
+	UpdatedAt    string    `json:"updated_at"`
 }
 
 type MediaItemInput struct {

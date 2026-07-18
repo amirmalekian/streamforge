@@ -7,14 +7,14 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	RabbitMQ RabbitMQConfig
-	JWT      JWTConfig
-	Queue    QueueConfig
-	Worker   WorkerConfig
+	App       AppConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	RabbitMQ  RabbitMQConfig
+	JWT       JWTConfig
+	Queue     QueueConfig
+	Worker    WorkerConfig
 	RateLimit int
 }
 

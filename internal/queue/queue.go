@@ -13,18 +13,17 @@ import (
 )
 
 type Message struct {
-	JobID    string                 `json:"job_id"`
-	Action   string                 `json:"action"`
-	Payload  map[string]interface{} `json:"payload"`
-	CreatedAt string                `json:"created_at"`
+	JobID     string                 `json:"job_id"`
+	Action    string                 `json:"action"`
+	Payload   map[string]interface{} `json:"payload"`
+	CreatedAt string                 `json:"created_at"`
 }
 
 type Service struct {
-	conn       *amqp.Connection
-	channel    *amqp.Channel
-	config     config.QueueConfig
-	mu         sync.RWMutex
-	consumerTag string
+	conn    *amqp.Connection
+	channel *amqp.Channel
+	config  config.QueueConfig
+	mu      sync.RWMutex
 }
 
 func Connect(cfg config.RabbitMQConfig) (*amqp.Connection, error) {

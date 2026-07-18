@@ -95,7 +95,7 @@ func (c *Client) IncrementProgress(ctx context.Context, jobID string) (*Progress
 			return nil, err
 		}
 
-		txf := c.Client.TxPipeline()
+		txf := c.TxPipeline()
 		txf.Set(ctx, key, newData, 24*time.Hour)
 
 		_, err = txf.Exec(ctx)
@@ -135,7 +135,7 @@ func (c *Client) RateLimitCheck(ctx context.Context, key string, limit int, wind
 	}
 
 	if count == 1 {
-		c.Client.Expire(ctx, rateLimitKey, window)
+		c.Expire(ctx, rateLimitKey, window)
 	}
 
 	return count <= int64(limit), nil
@@ -143,7 +143,7 @@ func (c *Client) RateLimitCheck(ctx context.Context, key string, limit int, wind
 
 func (c *Client) SubscribeJobEvents(ctx context.Context, jobID string) *redis.PubSub {
 	channel := fmt.Sprintf("job:%s:events", jobID)
-	return c.Client.Subscribe(ctx, channel)
+	return c.Subscribe(ctx, channel)
 }
 
 func (c *Client) PublishJobEvent(ctx context.Context, jobID string, eventType string, data interface{}) error {

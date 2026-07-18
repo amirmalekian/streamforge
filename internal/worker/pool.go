@@ -125,9 +125,9 @@ func (p *Pool) simulateProcessing(itemID uuid.UUID) {
 
 func (p *Pool) Submit(jobID, sourceURL string) error {
 	msg := queue.Message{
-		JobID:   jobID,
-		Action:  "PROCESS",
-		Payload: map[string]interface{}{"source_url": sourceURL},
+		JobID:     jobID,
+		Action:    "PROCESS",
+		Payload:   map[string]interface{}{"source_url": sourceURL},
 		CreatedAt: time.Now().Format(time.RFC3339),
 	}
 
