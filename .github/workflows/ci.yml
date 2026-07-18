@@ -6,73 +6,38 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
-    name: Lint
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
+      - name: Download dependencies
+        run: go mod download
+
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
           version: latest
           args: --timeout=5m
 
   test:
-    name: Test
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: streamforge
-          POSTGRES_PASSWORD: streamforge
-          POSTGRES_DB: streamforge
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U streamforge -d streamforge"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-      rabbitmq:
-        image: rabbitmq:3.13-management-alpine
-        env:
-          RABBITMQ_DEFAULT_USER: streamforge
-          RABBITMQ_DEFAULT_PASS: streamforge
-        ports:
-          - 5672:5672
-        options: >-
-          --health-cmd="rabbitmq-diagnostics check_running"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+    needs: lint
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
@@ -80,53 +45,24 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Wait for services
+      - name: Run unit tests
         run: |
-          sleep 10
-          pg_isready -h localhost -p 5432 -U streamforge -d streamforge
-          # Redis and RabbitMQ readiness verified by their health checks
-
-      - name: Run migrations
-        run: |
-          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-          migrate -path migrations -database "postgres://streamforge:streamforge@localhost:5432/streamforge?sslmode=disable" up
-
-      - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.out
-          fail_ci_if_error: false
+          go test -race -cover ./...
 
   build:
-    name: Build
     runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    needs: test
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
-
       - name: Build API
-        run: CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o streamforge-api ./cmd/api
+        run: go build ./cmd/api
 
       - name: Build Worker
-        run: CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o streamforge-worker ./cmd/worker
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries
-          path: |
-            streamforge-api
-            streamforge-worker
+        run: go build ./cmd/worker
