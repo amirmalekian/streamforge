@@ -9,9 +9,9 @@ Current Phase
 
 Completed in this phase
 ✅ Downloader Abstraction
+✅ yt-dlp Adapter
 
 Remaining work
-⬜ yt-dlp Adapter
 ⬜ Playlist Support
 ⬜ Progress Reporting
 
@@ -24,11 +24,11 @@ Remaining work
 - [x] Mock downloader
 
 ### yt-dlp Adapter
-- [ ] Download single video
-- [ ] Return metadata
-- [ ] Context cancellation
-- [ ] Unit tests
-- [ ] golangci-lint passes
+- [x] Download single video
+- [x] Return metadata
+- [x] Context cancellation
+- [x] Unit tests
+- [x] golangci-lint passes
 
 ### Playlist Support
 - [ ] Parse playlists
