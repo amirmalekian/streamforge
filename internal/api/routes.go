@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,6 +14,16 @@ import (
 	"streamforge/internal/queue"
 	"streamforge/internal/redis"
 )
+
+type jobCreateService interface {
+	CreateJob(ctx context.Context, userID, sourceURL string) (*jobs.JobResponse, error)
+	CreateMediaItems(ctx context.Context, jobID string, items []jobs.MediaItemInput) error
+	UpdateJobStatus(ctx context.Context, jobID, status, errorMsg string) error
+}
+
+type queuePublisher interface {
+	Publish(ctx context.Context, msg queue.Message) error
+}
 
 func RegisterRoutes(
 	r *gin.Engine,
@@ -106,7 +117,7 @@ func loginHandler(svc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-func createJobHandler(svc *jobs.Service, queueSvc *queue.Service) gin.HandlerFunc {
+func createJobHandler(svc jobCreateService, queueSvc queuePublisher) gin.HandlerFunc {
 	type request struct {
 		SourceURL string `json:"source_url" binding:"required,url"`
 	}
@@ -130,7 +141,16 @@ func createJobHandler(svc *jobs.Service, queueSvc *queue.Service) gin.HandlerFun
 			return
 		}
 
+		if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), []jobs.MediaItemInput{
+			{Title: "Source Media", SourceURL: req.SourceURL},
+		}); err != nil {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to create media items")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create media items"})
+			return
+		}
+
 		if queueSvc == nil {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "queue service unavailable")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "queue service unavailable"})
 			return
 		}
@@ -141,10 +161,12 @@ func createJobHandler(svc *jobs.Service, queueSvc *queue.Service) gin.HandlerFun
 			Payload:   map[string]interface{}{"source_url": req.SourceURL},
 			CreatedAt: time.Now().Format(time.RFC3339),
 		}); err != nil {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to publish queue message")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue job", "details": err.Error()})
 			return
 		}
 
+		_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "QUEUED", "")
 		c.JSON(http.StatusCreated, resp)
 	}
 }

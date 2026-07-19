@@ -6,16 +6,25 @@ import (
 	"sync"
 	"time"
 
+	"streamforge/internal/database"
 	"streamforge/internal/downloader"
-	"streamforge/internal/jobs"
 	"streamforge/internal/queue"
 	"streamforge/internal/redis"
 )
 
+type JobService interface {
+	UpdateJobStatus(ctx context.Context, jobID, status, errorMsg string) error
+	GetMediaItemsInternal(ctx context.Context, jobID, status string, limit, offset int) ([]*database.MediaItem, int, error)
+	SetJobTotalItems(ctx context.Context, jobID string, total int) error
+	UpdateMediaItemStatus(ctx context.Context, itemID, status string, progress int, errorMsg string) error
+	UpdateMediaItemSize(ctx context.Context, itemID string, size int64) error
+	UpdateJobProgress(ctx context.Context, jobID string, completed int) error
+}
+
 type Pool struct {
 	workers    int
 	taskQueue  chan queue.Message
-	jobService *jobs.Service
+	jobService JobService
 	redis      *redis.Client
 	downloader downloader.Downloader
 	wg         sync.WaitGroup
@@ -25,7 +34,7 @@ type Pool struct {
 
 func NewPool(
 	workers int,
-	jobSvc *jobs.Service,
+	jobSvc JobService,
 	redisClient *redis.Client,
 	dl downloader.Downloader,
 ) *Pool {
@@ -70,8 +79,6 @@ func (p *Pool) processTask(task queue.Message) {
 	jobID := task.JobID
 	ctx := p.ctx
 
-	sourceURL, _ := task.Payload["source_url"].(string)
-
 	_ = p.jobService.UpdateJobStatus(ctx, jobID, "PROCESSING", "")
 	if p.redis != nil {
 		_ = p.redis.SetJobStatus(ctx, jobID, "PROCESSING")
@@ -84,21 +91,8 @@ func (p *Pool) processTask(task queue.Message) {
 	}
 
 	if len(items) == 0 {
-		if sourceURL == "" {
-			p.failJob(ctx, jobID, "source_url is required")
-			return
-		}
-		if err := p.jobService.CreateMediaItems(ctx, jobID, []jobs.MediaItemInput{
-			{Title: "Source Media", SourceURL: sourceURL},
-		}); err != nil {
-			p.failJob(ctx, jobID, err.Error())
-			return
-		}
-		items, _, err = p.jobService.GetMediaItemsInternal(ctx, jobID, "", 100, 0)
-		if err != nil {
-			p.failJob(ctx, jobID, err.Error())
-			return
-		}
+		p.failJob(ctx, jobID, "no media items found for job")
+		return
 	}
 
 	totalItems := len(items)

@@ -83,12 +83,14 @@ func (s *Service) CreateJob(ctx context.Context, userID, sourceURL string) (*Job
 		return nil, err
 	}
 
-	_ = s.redis.SetProgress(ctx, job.ID.String(), &redis.Progress{
-		Total:      0,
-		Completed:  0,
-		Percentage: 0,
-		Status:     "CREATED",
-	})
+	if s.redis != nil {
+		_ = s.redis.SetProgress(ctx, job.ID.String(), &redis.Progress{
+			Total:      0,
+			Completed:  0,
+			Percentage: 0,
+			Status:     "CREATED",
+		})
+	}
 
 	return jobToResponse(job), nil
 }
@@ -106,10 +108,12 @@ func (s *Service) GetJob(ctx context.Context, userID, jobID string) (*JobRespons
 		return nil, ErrUnauthorized
 	}
 
-	progress, _ := s.redis.GetProgress(ctx, jobID)
-	if progress != nil {
-		job.CompletedItems = progress.Completed
-		job.TotalItems = progress.Total
+	if s.redis != nil {
+		progress, _ := s.redis.GetProgress(ctx, jobID)
+		if progress != nil {
+			job.CompletedItems = progress.Completed
+			job.TotalItems = progress.Total
+		}
 	}
 
 	return jobToResponse(job), nil
@@ -123,10 +127,12 @@ func (s *Service) ListJobs(ctx context.Context, userID, status string, limit, of
 
 	responses := make([]*JobResponse, len(jobs))
 	for i, job := range jobs {
-		progress, _ := s.redis.GetProgress(ctx, job.ID.String())
-		if progress != nil {
-			job.CompletedItems = progress.Completed
-			job.TotalItems = progress.Total
+		if s.redis != nil {
+			progress, _ := s.redis.GetProgress(ctx, job.ID.String())
+			if progress != nil {
+				job.CompletedItems = progress.Completed
+				job.TotalItems = progress.Total
+			}
 		}
 		responses[i] = jobToResponse(job)
 	}
@@ -160,8 +166,10 @@ func (s *Service) CancelJob(ctx context.Context, userID, jobID string) error {
 		return err
 	}
 
-	_ = s.redis.SetJobStatus(ctx, jobID, "CANCELLED")
-	_ = s.redis.DeleteProgress(ctx, jobID)
+	if s.redis != nil {
+		_ = s.redis.SetJobStatus(ctx, jobID, "CANCELLED")
+		_ = s.redis.DeleteProgress(ctx, jobID)
+	}
 	_ = s.repo.UpdateMediaItemsStatus(ctx, jobID, "CANCELLED")
 
 	return nil
