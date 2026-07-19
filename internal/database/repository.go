@@ -223,7 +223,7 @@ func (r *Repository) CreateMediaItem(ctx context.Context, params CreateMediaItem
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO media_items (job_id, title, source_url)
 		VALUES ($1, $2, $3)
-		RETURNING id, job_id, title, source_url, status, progress, size_bytes, error_message, created_at, updated_at
+		RETURNING id, job_id, title, source_url, status, progress, size, error_message, created_at, updated_at
 	`, params.JobID, params.Title, params.SourceURL).Scan(
 		&item.ID, &item.JobID, &item.Title, &item.SourceURL,
 		&item.Status, &item.Progress, &item.SizeBytes, &item.ErrorMessage,
@@ -238,7 +238,7 @@ func (r *Repository) CreateMediaItem(ctx context.Context, params CreateMediaItem
 func (r *Repository) GetMediaItem(ctx context.Context, itemID string) (*MediaItem, error) {
 	item := &MediaItem{}
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, job_id, title, source_url, status, progress, size_bytes, error_message, created_at, updated_at
+		SELECT id, job_id, title, source_url, status, progress, size, error_message, created_at, updated_at
 		FROM media_items WHERE id = $1
 	`, itemID).Scan(
 		&item.ID, &item.JobID, &item.Title, &item.SourceURL,
@@ -256,7 +256,7 @@ func (r *Repository) GetMediaItem(ctx context.Context, itemID string) (*MediaIte
 
 func (r *Repository) ListMediaItems(ctx context.Context, jobID string, status string, limit, offset int) ([]*MediaItem, int, error) {
 	query := `
-		SELECT id, job_id, title, source_url, status, progress, size_bytes, error_message, created_at, updated_at
+		SELECT id, job_id, title, source_url, status, progress, size, error_message, created_at, updated_at
 		FROM media_items WHERE job_id = $1
 	`
 	args := []interface{}{jobID}
@@ -315,7 +315,7 @@ func (r *Repository) UpdateMediaItemStatus(ctx context.Context, itemID, status s
 
 func (r *Repository) UpdateMediaItemSize(ctx context.Context, itemID string, size int64) error {
 	_, err := r.pool.Exec(ctx, `
-		UPDATE media_items SET size_bytes = $1, updated_at = NOW()
+		UPDATE media_items SET size = $1, updated_at = NOW()
 		WHERE id = $2
 	`, size, itemID)
 	return err

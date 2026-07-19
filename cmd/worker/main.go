@@ -10,6 +10,7 @@ import (
 
 	"streamforge/internal/config"
 	"streamforge/internal/database"
+	"streamforge/internal/downloader"
 	"streamforge/internal/jobs"
 	"streamforge/internal/queue"
 	"streamforge/internal/redis"
@@ -50,7 +51,8 @@ func main() {
 	jobSvc := jobs.NewService(repo, redisClient)
 	queueSvc := queue.NewService(rabbitConn, cfg.Queue)
 
-	workerPool := worker.NewPool(cfg.Worker.WorkerCount, jobSvc, redisClient)
+	workerDownloader := downloader.NewYTDLPDownloader("/tmp/streamforge")
+	workerPool := worker.NewPool(cfg.Worker.WorkerCount, jobSvc, redisClient, workerDownloader)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
