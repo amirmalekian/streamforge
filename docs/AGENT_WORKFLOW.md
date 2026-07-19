@@ -2,15 +2,87 @@
 
 This document defines the required workflow for implementing any new feature in the StreamForge repository.
 
-Every feature implementation must follow these steps.
+Every feature implementation must follow these steps strictly.
+
+---
+
+# 0. Determine Next Feature
+
+Before starting any development work, identify the next feature from the project roadmap.
+
+The single source of truth for feature priority is:
+
+```
+docs/ROADMAP.md
+```
+
+Process:
+
+1. Read:
+
+```
+docs/ROADMAP.md
+```
+
+2. Identify:
+
+- Current active phase
+- Completed features
+- Remaining features
+- Feature order
+
+3. Select the first unfinished feature according to roadmap order.
+
+Example:
+
+```md
+Phase 3 — Download Engine
+
+[x] Downloader abstraction
+[x] yt-dlp Adapter
+[x] Async execution pipeline
+
+[ ] Playlist Support
+[ ] Progress Reporting
+```
+
+The next feature is:
+
+```
+Playlist Support
+```
+
+Before implementation, report:
+
+```
+Current Phase:
+Phase X
+
+Selected Feature:
+Feature Name
+
+Reason:
+This is the next incomplete item in docs/ROADMAP.md
+
+Branch:
+feature/<feature-name>
+```
+
+Do not start implementation if:
+
+- roadmap priority is unclear
+- feature dependencies are missing
+- multiple features have equal priority
+
+Ask for clarification first.
 
 ---
 
 # 1. Repository State Check
 
-Before making any changes:
+Before making changes:
 
-Check current git state:
+Check git state:
 
 ```bash
 git status
@@ -24,15 +96,15 @@ git branch --show-current
 
 Requirements:
 
-- Working tree must be clean before starting a new feature.
-- Never overwrite existing uncommitted changes.
-- If uncommitted changes exist, report them before continuing.
+- Working tree must be clean.
+- Never overwrite existing changes.
+- Report uncommitted changes before continuing.
 
 ---
 
-# 2. Always Start From Latest Main
+# 2. Start From Latest Main
 
-Every new feature must start from the latest `main` branch.
+Every new feature must start from the latest `main`.
 
 Execute:
 
@@ -47,20 +119,18 @@ Verify:
 git log --oneline -5
 ```
 
-Never start feature development from:
+Never start development from:
 
 - old feature branches
+- previous PR branches
 - roadmap branches
 - temporary branches
-- previous PR branches
 
 ---
 
 # 3. Create Feature Branch
 
-After updating main, create a dedicated feature branch.
-
-Branch naming convention:
+Branch naming:
 
 ```
 feature/<feature-name>
@@ -74,27 +144,19 @@ feature/progress-reporting
 feature/job-retry-system
 ```
 
-Create branch:
+Create:
 
 ```bash
 git checkout -b feature/<feature-name>
 ```
 
-All feature work must happen only on this branch.
-
-Never commit feature code directly to:
-
-```
-main
-update-roadmap-*
-chore/*
-```
+All implementation must happen only on this branch.
 
 ---
 
 # 4. Understand Current Project State
 
-Before implementation, read:
+Before coding read:
 
 ```
 README.md
@@ -104,32 +166,30 @@ docs/
 
 Understand:
 
-- current architecture
-- completed phases
-- active development phase
-- remaining features
-- existing technical decisions
+- architecture
+- current phase
+- completed work
+- remaining work
+- existing constraints
 
-Do not implement already completed features.
+Do not duplicate completed features.
 
 ---
 
-# 5. Update ROADMAP.md
+# 5. Update ROADMAP Before Development
 
-Before writing code, update:
+Before implementation update:
 
 ```
 docs/ROADMAP.md
 ```
 
-Add the feature status.
+Mark the selected feature:
 
 Example:
 
 ```md
-## Phase X
-
-### Feature Name
+### Playlist Support
 
 Status:
 🚧 In Progress
@@ -138,22 +198,22 @@ Started:
 YYYY-MM-DD
 ```
 
-After completing the feature:
+After completion:
 
 ```md
 Status:
 ✅ Completed
 ```
 
-The roadmap must always represent the real project state.
+ROADMAP.md must always represent the real project state.
 
 ---
 
 # 6. Define Feature Scope
 
-Before coding, provide:
+Before coding provide:
 
-## Feature Goal
+## Goal
 
 What problem this feature solves.
 
@@ -163,13 +223,13 @@ What will be implemented.
 
 ## Out of Scope
 
-What will intentionally not be changed.
+What will not be changed.
 
 ## Expected Files
 
-Which areas of the repository should change.
+Which areas should change.
 
-Avoid expanding scope without confirmation.
+Do not expand scope without approval.
 
 ---
 
@@ -177,30 +237,79 @@ Avoid expanding scope without confirmation.
 
 Follow existing architecture.
 
-Requirements:
+Rules:
 
 - Keep packages modular.
-- Respect existing interfaces.
+- Respect interfaces.
 - Prefer dependency injection.
-- Avoid unnecessary refactoring.
-- Avoid unrelated cleanup.
-- Do not change public APIs without reason.
-- Do not introduce new dependencies without justification.
-- Keep backward compatibility when possible.
+- Avoid unrelated refactoring.
+- Avoid unnecessary dependencies.
+- Do not modify database schema unless required.
+- Keep changes reviewable.
 
 ---
 
-# 8. Testing Requirements
+# 8. Architecture Boundaries
 
-Every feature must include tests.
+## API
 
-Required coverage:
+Responsible for:
+
+- HTTP handling
+- authentication
+- validation
+- job creation
+- queue publishing
+
+API should NOT:
+
+- execute downloads
+- process queue messages
+- run worker tasks
+
+
+## Worker
+
+Responsible for:
+
+- consuming queue messages
+- executing jobs
+- calling downloader
+- updating job state
+
+Worker should NOT:
+
+- handle HTTP
+- create user requests
+- bypass queue flow
+
+
+## Downloader
+
+Responsible for:
+
+- media downloading
+- metadata extraction
+- external downloader integrations
+
+Downloader should NOT:
+
+- access database directly
+- manage jobs
+
+---
+
+# 9. Testing Requirements
+
+Every feature requires tests.
+
+Cover:
 
 - normal behavior
 - edge cases
-- failure scenarios
+- failures
 
-Before committing run:
+Run:
 
 ```bash
 go test ./...
@@ -214,43 +323,43 @@ go build ./...
 golangci-lint run ./...
 ```
 
-If a command is unavailable:
+If unavailable:
 
-- report it clearly
-- never claim success
+- report it
+- do not claim success
 
 ---
 
-# 9. Commit Strategy
+# 10. Commit Strategy
 
-Never create one large commit containing unrelated changes.
+Never create one huge commit.
 
-Commits must be separated by responsibility.
+Separate by responsibility.
 
 Examples:
 
-Feature implementation:
+Feature:
 
 ```
 feat(component): implement feature
 ```
 
-Bug fix:
-
-```
-fix(component): fix issue
-```
-
 Tests:
 
 ```
-test(component): add feature tests
+test(component): add tests
 ```
 
 Documentation:
 
 ```
-docs(roadmap): update feature status
+docs(roadmap): update status
+```
+
+Fix:
+
+```
+fix(component): fix issue
 ```
 
 Refactor:
@@ -259,13 +368,11 @@ Refactor:
 refactor(component): improve structure
 ```
 
-Each commit must be independently reviewable.
-
 ---
 
-# 10. Pull Request Preparation
+# 11. Pull Request Preparation
 
-Before opening PR:
+Before PR:
 
 Check:
 
@@ -279,122 +386,28 @@ git log --oneline --decorate --graph
 
 Provide:
 
-- Feature summary
+- Summary
 - Architecture changes
 - Files changed
-- Tests executed
-- Remaining technical debt
+- Tests
+- Technical debt
 - Commit list
 
 ---
 
-# 11. Pull Request Rules
+# 12. Completion Checklist
 
-PR title format:
+Before marking feature complete:
 
-```
-<type>(<scope>): <description>
-```
-
-Examples:
-
-```
-feat(download): add playlist support
-fix(worker): improve job execution flow
-docs(roadmap): update phase status
-```
-
-PR description must include:
-
-## Overview
-
-What changed.
-
-## Changes
-
-Detailed implementation summary.
-
-## Testing
-
-Commands executed and results.
-
-## Out of Scope
-
-What was intentionally excluded.
-
-## Follow-ups
-
-Future improvements.
-
----
-
-# 12. StreamForge Architecture Rules
-
-Respect these boundaries:
-
-## API Service
-
-Responsible for:
-
-- HTTP handling
-- authentication
-- validation
-- creating jobs
-- publishing messages
-
-API should NOT:
-
-- execute downloads
-- run worker tasks
-- process queue messages
-
-
-## Worker Service
-
-Responsible for:
-
-- consuming queue messages
-- executing jobs
-- calling downloader
-- updating job/media status
-
-Worker should NOT:
-
-- handle HTTP
-- create business requests
-- bypass queue flow
-
-
-## Downloader Layer
-
-Responsible for:
-
-- downloading media
-- metadata extraction
-- external downloader integrations
-
-Downloader should not:
-
-- modify database directly
-- manage jobs
-
-
----
-
-# 13. Completion Checklist
-
-Before considering a feature complete:
-
-- [ ] Feature branch created from latest main
-- [ ] ROADMAP.md updated
+- [ ] Started from latest main
+- [ ] Feature branch created
+- [ ] ROADMAP updated
 - [ ] Scope respected
 - [ ] Tests added
-- [ ] go test ./... passes
-- [ ] go build ./... passes
-- [ ] golangci-lint passes
-- [ ] Commits separated by responsibility
-- [ ] PR description prepared
+- [ ] go test passes
+- [ ] go build passes
+- [ ] golangci-lint checked
+- [ ] Commits separated
+- [ ] PR prepared
 
----
-
-Follow this workflow for every future StreamForge feature.
+Follow this workflow for every StreamForge feature.

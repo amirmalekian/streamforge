@@ -1,3 +1,17 @@
+# Current Development
+
+Phase:
+Phase 3 — Download Engine
+
+Active Feature:
+Playlist Support
+
+Status:
+Next
+
+Branch:
+feature/playlist-support
+
 Current Status
 
 Completed
