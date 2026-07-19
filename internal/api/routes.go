@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -10,15 +11,25 @@ import (
 	"streamforge/internal/auth"
 	"streamforge/internal/jobs"
 	"streamforge/internal/middleware"
+	"streamforge/internal/queue"
 	"streamforge/internal/redis"
-	"streamforge/internal/worker"
 )
+
+type jobCreateService interface {
+	CreateJob(ctx context.Context, userID, sourceURL string) (*jobs.JobResponse, error)
+	CreateMediaItems(ctx context.Context, jobID string, items []jobs.MediaItemInput) error
+	UpdateJobStatus(ctx context.Context, jobID, status, errorMsg string) error
+}
+
+type queuePublisher interface {
+	Publish(ctx context.Context, msg queue.Message) error
+}
 
 func RegisterRoutes(
 	r *gin.Engine,
 	authSvc *auth.Service,
 	jobSvc *jobs.Service,
-	workerPool *worker.Pool,
+	queueSvc *queue.Service,
 	redisClient *redis.Client,
 ) {
 	r.GET("/health", func(c *gin.Context) {
@@ -36,7 +47,7 @@ func RegisterRoutes(
 	{
 		jobsGroup := api.Group("/jobs")
 		{
-			jobsGroup.POST("", createJobHandler(jobSvc, workerPool))
+			jobsGroup.POST("", createJobHandler(jobSvc, queueSvc))
 			jobsGroup.GET("", listJobsHandler(jobSvc))
 			jobsGroup.GET("/:id", getJobHandler(jobSvc))
 			jobsGroup.DELETE("/:id", cancelJobHandler(jobSvc))
@@ -106,7 +117,7 @@ func loginHandler(svc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-func createJobHandler(svc *jobs.Service, pool *worker.Pool) gin.HandlerFunc {
+func createJobHandler(svc jobCreateService, queueSvc queuePublisher) gin.HandlerFunc {
 	type request struct {
 		SourceURL string `json:"source_url" binding:"required,url"`
 	}
@@ -130,11 +141,32 @@ func createJobHandler(svc *jobs.Service, pool *worker.Pool) gin.HandlerFunc {
 			return
 		}
 
-		if err := pool.Submit(resp.ID.String(), req.SourceURL); err != nil {
+		if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), []jobs.MediaItemInput{
+			{Title: "Source Media", SourceURL: req.SourceURL},
+		}); err != nil {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to create media items")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create media items"})
+			return
+		}
+
+		if queueSvc == nil {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "queue service unavailable")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "queue service unavailable"})
+			return
+		}
+
+		if err := queueSvc.Publish(c.Request.Context(), queue.Message{
+			JobID:     resp.ID.String(),
+			Action:    "PROCESS",
+			Payload:   map[string]interface{}{"source_url": req.SourceURL},
+			CreatedAt: time.Now().Format(time.RFC3339),
+		}); err != nil {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to publish queue message")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to queue job", "details": err.Error()})
 			return
 		}
 
+		_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "QUEUED", "")
 		c.JSON(http.StatusCreated, resp)
 	}
 }

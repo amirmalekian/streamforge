@@ -83,12 +83,14 @@ func (s *Service) CreateJob(ctx context.Context, userID, sourceURL string) (*Job
 		return nil, err
 	}
 
-	_ = s.redis.SetProgress(ctx, job.ID.String(), &redis.Progress{
-		Total:      0,
-		Completed:  0,
-		Percentage: 0,
-		Status:     "CREATED",
-	})
+	if s.redis != nil {
+		_ = s.redis.SetProgress(ctx, job.ID.String(), &redis.Progress{
+			Total:      0,
+			Completed:  0,
+			Percentage: 0,
+			Status:     "CREATED",
+		})
+	}
 
 	return jobToResponse(job), nil
 }
@@ -106,10 +108,12 @@ func (s *Service) GetJob(ctx context.Context, userID, jobID string) (*JobRespons
 		return nil, ErrUnauthorized
 	}
 
-	progress, _ := s.redis.GetProgress(ctx, jobID)
-	if progress != nil {
-		job.CompletedItems = progress.Completed
-		job.TotalItems = progress.Total
+	if s.redis != nil {
+		progress, _ := s.redis.GetProgress(ctx, jobID)
+		if progress != nil {
+			job.CompletedItems = progress.Completed
+			job.TotalItems = progress.Total
+		}
 	}
 
 	return jobToResponse(job), nil
@@ -123,10 +127,12 @@ func (s *Service) ListJobs(ctx context.Context, userID, status string, limit, of
 
 	responses := make([]*JobResponse, len(jobs))
 	for i, job := range jobs {
-		progress, _ := s.redis.GetProgress(ctx, job.ID.String())
-		if progress != nil {
-			job.CompletedItems = progress.Completed
-			job.TotalItems = progress.Total
+		if s.redis != nil {
+			progress, _ := s.redis.GetProgress(ctx, job.ID.String())
+			if progress != nil {
+				job.CompletedItems = progress.Completed
+				job.TotalItems = progress.Total
+			}
 		}
 		responses[i] = jobToResponse(job)
 	}
@@ -160,8 +166,10 @@ func (s *Service) CancelJob(ctx context.Context, userID, jobID string) error {
 		return err
 	}
 
-	_ = s.redis.SetJobStatus(ctx, jobID, "CANCELLED")
-	_ = s.redis.DeleteProgress(ctx, jobID)
+	if s.redis != nil {
+		_ = s.redis.SetJobStatus(ctx, jobID, "CANCELLED")
+		_ = s.redis.DeleteProgress(ctx, jobID)
+	}
 	_ = s.repo.UpdateMediaItemsStatus(ctx, jobID, "CANCELLED")
 
 	return nil
@@ -176,8 +184,17 @@ func (s *Service) UpdateJobProgress(ctx context.Context, jobID string, completed
 		return err
 	}
 
-	progress, _ := s.redis.IncrementProgress(ctx, jobID)
+	if s.redis == nil {
+		return nil
+	}
+
+	progress, _ := s.redis.GetProgress(ctx, jobID)
 	if progress != nil {
+		progress.Completed = completed
+		if progress.Total > 0 {
+			progress.Percentage = (progress.Completed * 100) / progress.Total
+		}
+		_ = s.redis.SetProgress(ctx, jobID, progress)
 		s.PublishEvent(ctx, jobID, "progress", progress)
 	}
 
@@ -189,13 +206,15 @@ func (s *Service) SetJobTotalItems(ctx context.Context, jobID string, total int)
 		return err
 	}
 
-	progress, _ := s.redis.GetProgress(ctx, jobID)
-	if progress != nil {
-		progress.Total = total
-		if total > 0 {
-			progress.Percentage = (progress.Completed * 100) / total
+	if s.redis != nil {
+		progress, _ := s.redis.GetProgress(ctx, jobID)
+		if progress != nil {
+			progress.Total = total
+			if total > 0 {
+				progress.Percentage = (progress.Completed * 100) / total
+			}
+			_ = s.redis.SetProgress(ctx, jobID, progress)
 		}
-		_ = s.redis.SetProgress(ctx, jobID, progress)
 	}
 
 	return nil
@@ -225,6 +244,29 @@ func (s *Service) GetMediaItems(ctx context.Context, userID, jobID, status strin
 	}
 
 	return responses, total, nil
+}
+
+func (s *Service) GetJobInternal(ctx context.Context, jobID string) (*database.Job, error) {
+	job, err := s.repo.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if job == nil {
+		return nil, ErrJobNotFound
+	}
+	return job, nil
+}
+
+func (s *Service) GetMediaItemsInternal(ctx context.Context, jobID, status string, limit, offset int) ([]*database.MediaItem, int, error) {
+	job, err := s.repo.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if job == nil {
+		return nil, 0, ErrJobNotFound
+	}
+
+	return s.repo.ListMediaItems(ctx, jobID, status, limit, offset)
 }
 
 func (s *Service) CreateMediaItems(ctx context.Context, jobID string, items []MediaItemInput) error {
@@ -262,6 +304,10 @@ func (s *Service) UpdateMediaItemStatus(ctx context.Context, itemID, status stri
 	})
 
 	return nil
+}
+
+func (s *Service) UpdateMediaItemSize(ctx context.Context, itemID string, size int64) error {
+	return s.repo.UpdateMediaItemSize(ctx, itemID, size)
 }
 
 func (s *Service) Subscribe(ctx context.Context, jobID string, ch chan string) {

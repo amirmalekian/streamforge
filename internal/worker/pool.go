@@ -6,18 +6,27 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
-	"streamforge/internal/jobs"
+	"streamforge/internal/database"
+	"streamforge/internal/downloader"
 	"streamforge/internal/queue"
 	"streamforge/internal/redis"
 )
 
+type JobService interface {
+	UpdateJobStatus(ctx context.Context, jobID, status, errorMsg string) error
+	GetMediaItemsInternal(ctx context.Context, jobID, status string, limit, offset int) ([]*database.MediaItem, int, error)
+	SetJobTotalItems(ctx context.Context, jobID string, total int) error
+	UpdateMediaItemStatus(ctx context.Context, itemID, status string, progress int, errorMsg string) error
+	UpdateMediaItemSize(ctx context.Context, itemID string, size int64) error
+	UpdateJobProgress(ctx context.Context, jobID string, completed int) error
+}
+
 type Pool struct {
 	workers    int
 	taskQueue  chan queue.Message
-	jobService *jobs.Service
+	jobService JobService
 	redis      *redis.Client
+	downloader downloader.Downloader
 	wg         sync.WaitGroup
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -25,15 +34,20 @@ type Pool struct {
 
 func NewPool(
 	workers int,
-	jobSvc *jobs.Service,
+	jobSvc JobService,
 	redisClient *redis.Client,
+	dl downloader.Downloader,
 ) *Pool {
 	ctx, cancel := context.WithCancel(context.Background())
+	if dl == nil {
+		dl = downloader.NewMockDownloader()
+	}
 	return &Pool{
 		workers:    workers,
 		taskQueue:  make(chan queue.Message, workers*2),
 		jobService: jobSvc,
 		redis:      redisClient,
+		downloader: dl,
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -66,34 +80,33 @@ func (p *Pool) processTask(task queue.Message) {
 	ctx := p.ctx
 
 	_ = p.jobService.UpdateJobStatus(ctx, jobID, "PROCESSING", "")
-
-	progress, _ := p.redis.GetProgress(ctx, jobID)
-	if progress == nil {
-		progress = &redis.Progress{
-			Total:      10,
-			Completed:  0,
-			Percentage: 0,
-			Status:     "PROCESSING",
-		}
-		_ = p.redis.SetProgress(ctx, jobID, progress)
+	if p.redis != nil {
+		_ = p.redis.SetJobStatus(ctx, jobID, "PROCESSING")
 	}
 
-	items, _, err := p.jobService.GetMediaItems(ctx, "", jobID, "", 100, 0)
+	items, _, err := p.jobService.GetMediaItemsInternal(ctx, jobID, "", 100, 0)
 	if err != nil {
-		_ = p.jobService.UpdateJobStatus(ctx, jobID, "FAILED", err.Error())
+		p.failJob(ctx, jobID, err.Error())
 		return
 	}
 
 	if len(items) == 0 {
-		_ = p.jobService.SetJobTotalItems(ctx, jobID, 10)
-		for i := 1; i <= 10; i++ {
-			_ = p.jobService.CreateMediaItems(ctx, jobID, []jobs.MediaItemInput{
-				{Title: fmt.Sprintf("Media Item %d", i), SourceURL: fmt.Sprintf("https://example.com/media/%d.mp4", i)},
-			})
-		}
-		items, _, _ = p.jobService.GetMediaItems(ctx, "", jobID, "", 100, 0)
+		p.failJob(ctx, jobID, "no media items found for job")
+		return
 	}
 
+	totalItems := len(items)
+	_ = p.jobService.SetJobTotalItems(ctx, jobID, totalItems)
+	if p.redis != nil {
+		_ = p.redis.SetProgress(ctx, jobID, &redis.Progress{
+			Total:      totalItems,
+			Completed:  0,
+			Percentage: 0,
+			Status:     "PROCESSING",
+		})
+	}
+
+	completed := 0
 	for _, item := range items {
 		select {
 		case <-ctx.Done():
@@ -102,25 +115,29 @@ func (p *Pool) processTask(task queue.Message) {
 		}
 
 		_ = p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "PROCESSING", 0, "")
-
-		p.simulateProcessing(item.ID)
+		result, err := p.downloader.Download(downloader.Item{
+			ID:    item.ID.String(),
+			URL:   item.SourceURL,
+			Title: item.Title,
+		})
+		if err != nil {
+			_ = p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "FAILED", 0, err.Error())
+			p.failJob(ctx, jobID, err.Error())
+			return
+		}
 
 		_ = p.jobService.UpdateMediaItemStatus(ctx, item.ID.String(), "COMPLETED", 100, "")
+		_ = p.jobService.UpdateMediaItemSize(ctx, item.ID.String(), result.Size)
 
-		updated, _ := p.redis.IncrementProgress(ctx, jobID)
-		if updated != nil {
-			_ = p.redis.PublishJobEvent(ctx, jobID, "progress", updated)
-			_ = p.jobService.UpdateJobProgress(ctx, jobID, updated.Completed)
-		}
+		completed++
+		_ = p.jobService.UpdateJobProgress(ctx, jobID, completed)
 	}
 
 	_ = p.jobService.UpdateJobStatus(ctx, jobID, "COMPLETED", "")
-	_ = p.redis.SetJobStatus(ctx, jobID, "COMPLETED")
-	_ = p.redis.PublishJobEvent(ctx, jobID, "complete", map[string]string{"status": "COMPLETED"})
-}
-
-func (p *Pool) simulateProcessing(itemID uuid.UUID) {
-	time.Sleep(100 * time.Millisecond)
+	if p.redis != nil {
+		_ = p.redis.SetJobStatus(ctx, jobID, "COMPLETED")
+		_ = p.redis.PublishJobEvent(ctx, jobID, "complete", map[string]string{"status": "COMPLETED"})
+	}
 }
 
 func (p *Pool) Submit(jobID, sourceURL string) error {
@@ -149,4 +166,15 @@ func (p *Pool) Stop() {
 	p.cancel()
 	close(p.taskQueue)
 	p.wg.Wait()
+}
+
+func (p *Pool) failJob(ctx context.Context, jobID, message string) {
+	_ = p.jobService.UpdateJobStatus(ctx, jobID, "FAILED", message)
+	if p.redis != nil {
+		_ = p.redis.SetJobStatus(ctx, jobID, "FAILED")
+		_ = p.redis.PublishJobEvent(ctx, jobID, "failed", map[string]string{
+			"status":  "FAILED",
+			"message": message,
+		})
+	}
 }

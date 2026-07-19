@@ -14,6 +14,7 @@ import (
 	"streamforge/internal/auth"
 	"streamforge/internal/config"
 	"streamforge/internal/database"
+	"streamforge/internal/downloader"
 	"streamforge/internal/jobs"
 	"streamforge/internal/middleware"
 	"streamforge/internal/queue"
@@ -58,7 +59,8 @@ func main() {
 	jobSvc := jobs.NewService(repo, redisClient)
 	queueSvc := queue.NewService(rabbitConn, cfg.Queue)
 
-	workerPool := worker.NewPool(cfg.Worker.WorkerCount, jobSvc, redisClient)
+	workerDownloader := downloader.NewYTDLPDownloader("/tmp/streamforge")
+	workerPool := worker.NewPool(cfg.Worker.WorkerCount, jobSvc, redisClient, workerDownloader)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,7 +74,7 @@ func main() {
 		}
 	}()
 
-	router := setupRouter(cfg, authSvc, jobSvc, workerPool, redisClient)
+	router := setupRouter(cfg, authSvc, jobSvc, queueSvc, redisClient)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.Server.Port),
@@ -110,7 +112,7 @@ func setupRouter(
 	cfg *config.Config,
 	authSvc *auth.Service,
 	jobSvc *jobs.Service,
-	workerPool *worker.Pool,
+	queueSvc *queue.Service,
 	redisClient *redis.Client,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
@@ -122,7 +124,7 @@ func setupRouter(
 	r.Use(middleware.Logger())
 	r.Use(middleware.RateLimiter(redisClient, cfg.RateLimit))
 
-	api.RegisterRoutes(r, authSvc, jobSvc, workerPool, redisClient)
+	api.RegisterRoutes(r, authSvc, jobSvc, queueSvc, redisClient)
 
 	return r
 }
