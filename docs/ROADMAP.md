@@ -3,20 +3,29 @@
 Phase:
 Phase 3 — Download Engine
 
-Active Feature:
+Current Status:
+Preparing next feature
+
+Next Feature:
 Playlist Support
 
-Status:
-Next
-
-Branch:
+Planned Branch:
 feature/playlist-support
 
-Current Status
 
-Completed
-✅ Phase 1 — Project Foundation
-✅ Phase 2 — CI / Tests / Quality Gates
+# Completed Features
+
+[x] Downloader abstraction
+[x] yt-dlp adapter
+[x] Async download execution pipeline
+
+
+# Upcoming Features
+
+[ ] Playlist Support
+[ ] Progress Reporting
+[ ] Retry System
+[ ] Observability
 
 Current Phase
 🚧 Phase 3 — Download Engine
@@ -24,30 +33,8 @@ Current Phase
 Completed in this phase
 ✅ Downloader Abstraction
 ✅ yt-dlp Adapter
+✅ Async download execution pipeline
 
 Remaining work
 ⬜ Playlist Support
 ⬜ Progress Reporting
-
----
-
-## Phase 3 — Download Engine
-
-### Downloader Abstraction
-- [x] Downloader interface
-- [x] Mock downloader
-
-### yt-dlp Adapter
-- [x] Download single video
-- [x] Return metadata
-- [x] Context cancellation
-- [x] Unit tests
-- [x] golangci-lint passes
-
-### Playlist Support
-- [ ] Parse playlists
-- [ ] Queue items
-
-### Progress Reporting
-- [ ] Progress callbacks
-- [ ] Download statistics
