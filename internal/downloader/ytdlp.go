@@ -188,6 +188,66 @@ func (d *YTDLPDownloader) GetMetadata(ctx context.Context, url string) (*Metadat
 	}, nil
 }
 
+func (d *YTDLPDownloader) GetPlaylist(ctx context.Context, url string) (*Playlist, error) {
+	args := []string{
+		"--flat-playlist",
+		"--dump-json",
+		url,
+	}
+
+	output, err := d.cmdRunner.Run(ctx, "yt-dlp", args...)
+	if err != nil {
+		if ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("playlist fetch cancelled: %w", ctx.Err())
+		}
+		return nil, fmt.Errorf("yt-dlp playlist failed: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("no playlist entries found")
+	}
+
+	var entries []PlaylistEntry
+	var playlistID, playlistTitle string
+
+	for i, line := range lines {
+		var info YTDLPPlaylistInfo
+		if err := json.Unmarshal([]byte(line), &info); err != nil {
+			continue
+		}
+
+		if i == 0 {
+			playlistID = info.ID
+			playlistTitle = info.Title
+		}
+
+		if info.ID != "" && info.URL != "" {
+			entries = append(entries, PlaylistEntry{
+				ID:    info.ID,
+				URL:   info.URL,
+				Title: info.Title,
+			})
+		}
+	}
+
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no valid playlist entries found")
+	}
+
+	return &Playlist{
+		ID:      playlistID,
+		Title:   playlistTitle,
+		Entries: entries,
+	}, nil
+}
+
+type YTDLPPlaylistInfo struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
 func (d *YTDLPDownloader) SetTimeout(timeout time.Duration) {
 	d.timeout = timeout
 }
