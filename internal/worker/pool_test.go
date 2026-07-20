@@ -67,6 +67,10 @@ func (m *mockDownloader) Download(item downloader.Item) (downloader.Result, erro
 	return m.result, nil
 }
 
+func (m *mockDownloader) GetPlaylist(ctx context.Context, url string) (*downloader.Playlist, error) {
+	return nil, nil
+}
+
 func TestNewPool(t *testing.T) {
 	jobSvc := &mockJobService{}
 
