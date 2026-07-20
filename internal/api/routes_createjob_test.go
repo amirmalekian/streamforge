@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	"streamforge/internal/downloader"
 	"streamforge/internal/jobs"
 	"streamforge/internal/queue"
 )
@@ -58,17 +59,31 @@ func (f *fakeQueuePublisher) Publish(ctx context.Context, msg queue.Message) err
 	return nil
 }
 
+type fakeDownloader struct {
+	playlist *downloader.Playlist
+	err      error
+}
+
+func (f *fakeDownloader) Download(item downloader.Item) (downloader.Result, error) {
+	return downloader.Result{}, nil
+}
+
+func (f *fakeDownloader) GetPlaylist(ctx context.Context, url string) (*downloader.Playlist, error) {
+	return f.playlist, f.err
+}
+
 func TestCreateJobHandler_PublishFailureMarksFailed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	svc := &fakeJobCreateService{jobID: uuid.New()}
 	queueSvc := &fakeQueuePublisher{err: errors.New("publish failed")}
+	dl := &fakeDownloader{}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uuid.New().String())
 		c.Next()
 	})
-	router.POST("/jobs", createJobHandler(svc, queueSvc))
+	router.POST("/jobs", createJobHandler(svc, queueSvc, dl))
 
 	body, _ := json.Marshal(map[string]string{"source_url": "https://example.com/video.mp4"})
 	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(body))
@@ -86,12 +101,13 @@ func TestCreateJobHandler_SuccessMarksQueuedAndPublishes(t *testing.T) {
 
 	svc := &fakeJobCreateService{jobID: uuid.New()}
 	queueSvc := &fakeQueuePublisher{}
+	dl := &fakeDownloader{}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uuid.New().String())
 		c.Next()
 	})
-	router.POST("/jobs", createJobHandler(svc, queueSvc))
+	router.POST("/jobs", createJobHandler(svc, queueSvc, dl))
 
 	body, _ := json.Marshal(map[string]string{"source_url": "https://example.com/video.mp4"})
 	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(body))
@@ -114,12 +130,13 @@ func TestCreateJobHandler_CreateMediaItemsFailureMarksFailed(t *testing.T) {
 		createItemsErr: errors.New("media create failed"),
 	}
 	queueSvc := &fakeQueuePublisher{}
+	dl := &fakeDownloader{}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("user_id", uuid.New().String())
 		c.Next()
 	})
-	router.POST("/jobs", createJobHandler(svc, queueSvc))
+	router.POST("/jobs", createJobHandler(svc, queueSvc, dl))
 
 	body, _ := json.Marshal(map[string]string{"source_url": "https://example.com/video.mp4"})
 	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(body))
@@ -130,4 +147,44 @@ func TestCreateJobHandler_CreateMediaItemsFailureMarksFailed(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Equal(t, []string{"FAILED"}, svc.statusUpdates)
 	assert.Empty(t, queueSvc.messages)
+}
+
+func TestCreateJobHandler_PlaylistCreatesMultipleItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := &fakeJobCreateService{jobID: uuid.New()}
+	queueSvc := &fakeQueuePublisher{}
+	playlist := &downloader.Playlist{
+		ID:    "playlist-123",
+		Title: "Test Playlist",
+		Entries: []downloader.PlaylistEntry{
+			{ID: "video1", URL: "https://example.com/video1", Title: "Video 1"},
+			{ID: "video2", URL: "https://example.com/video2", Title: "Video 2"},
+			{ID: "video3", URL: "https://example.com/video3", Title: "Video 3"},
+		},
+	}
+	dl := &fakeDownloader{playlist: playlist}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uuid.New().String())
+		c.Next()
+	})
+	router.POST("/jobs", createJobHandler(svc, queueSvc, dl))
+
+	body, _ := json.Marshal(map[string]string{"source_url": "https://example.com/playlist"})
+	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, []string{"QUEUED"}, svc.statusUpdates)
+	assert.Len(t, svc.createdItems, 3)
+	assert.Equal(t, "Video 1", svc.createdItems[0].Title)
+	assert.Equal(t, "https://example.com/video1", svc.createdItems[0].SourceURL)
+	assert.Equal(t, "Video 2", svc.createdItems[1].Title)
+	assert.Equal(t, "https://example.com/video2", svc.createdItems[1].SourceURL)
+	assert.Equal(t, "Video 3", svc.createdItems[2].Title)
+	assert.Equal(t, "https://example.com/video3", svc.createdItems[2].SourceURL)
+	assert.Len(t, queueSvc.messages, 1)
 }

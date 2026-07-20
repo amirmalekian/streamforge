@@ -74,7 +74,7 @@ func main() {
 		}
 	}()
 
-	router := setupRouter(cfg, authSvc, jobSvc, queueSvc, redisClient)
+	router := setupRouter(cfg, authSvc, jobSvc, queueSvc, redisClient, workerDownloader)
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%s", cfg.Server.Port),
@@ -114,6 +114,7 @@ func setupRouter(
 	jobSvc *jobs.Service,
 	queueSvc *queue.Service,
 	redisClient *redis.Client,
+	dl downloader.Downloader,
 ) *gin.Engine {
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -124,7 +125,7 @@ func setupRouter(
 	r.Use(middleware.Logger())
 	r.Use(middleware.RateLimiter(redisClient, cfg.RateLimit))
 
-	api.RegisterRoutes(r, authSvc, jobSvc, queueSvc, redisClient)
+	api.RegisterRoutes(r, authSvc, jobSvc, queueSvc, redisClient, dl)
 
 	return r
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"streamforge/internal/auth"
+	"streamforge/internal/downloader"
 	"streamforge/internal/jobs"
 	"streamforge/internal/middleware"
 	"streamforge/internal/queue"
@@ -31,6 +32,7 @@ func RegisterRoutes(
 	jobSvc *jobs.Service,
 	queueSvc *queue.Service,
 	redisClient *redis.Client,
+	dl downloader.Downloader,
 ) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "timestamp": time.Now()})
@@ -47,7 +49,7 @@ func RegisterRoutes(
 	{
 		jobsGroup := api.Group("/jobs")
 		{
-			jobsGroup.POST("", createJobHandler(jobSvc, queueSvc))
+			jobsGroup.POST("", createJobHandler(jobSvc, queueSvc, dl))
 			jobsGroup.GET("", listJobsHandler(jobSvc))
 			jobsGroup.GET("/:id", getJobHandler(jobSvc))
 			jobsGroup.DELETE("/:id", cancelJobHandler(jobSvc))
@@ -117,7 +119,7 @@ func loginHandler(svc *auth.Service) gin.HandlerFunc {
 	}
 }
 
-func createJobHandler(svc jobCreateService, queueSvc queuePublisher) gin.HandlerFunc {
+func createJobHandler(svc jobCreateService, queueSvc queuePublisher, dl downloader.Downloader) gin.HandlerFunc {
 	type request struct {
 		SourceURL string `json:"source_url" binding:"required,url"`
 	}
@@ -141,12 +143,31 @@ func createJobHandler(svc jobCreateService, queueSvc queuePublisher) gin.Handler
 			return
 		}
 
-		if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), []jobs.MediaItemInput{
-			{Title: "Source Media", SourceURL: req.SourceURL},
-		}); err != nil {
-			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to create media items")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create media items"})
-			return
+		// Check if the URL is a playlist
+		playlist, err := dl.GetPlaylist(c.Request.Context(), req.SourceURL)
+		if err != nil || playlist == nil || len(playlist.Entries) == 0 {
+			// Not a playlist or failed to fetch, treat as single video
+			if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), []jobs.MediaItemInput{
+				{Title: "Source Media", SourceURL: req.SourceURL},
+			}); err != nil {
+				_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to create media items")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create media items"})
+				return
+			}
+		} else {
+			// It's a playlist, create media items for each entry
+			items := make([]jobs.MediaItemInput, len(playlist.Entries))
+			for i, entry := range playlist.Entries {
+				items[i] = jobs.MediaItemInput{
+					Title:     entry.Title,
+					SourceURL: entry.URL,
+				}
+			}
+			if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), items); err != nil {
+				_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to create media items")
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create media items"})
+				return
+			}
 		}
 
 		if queueSvc == nil {
