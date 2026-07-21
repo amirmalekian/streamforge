@@ -306,6 +306,23 @@ func TestYTDLPDownloader_GetPlaylist_SuccessWithInvalidJSONLines(t *testing.T) {
 	}
 }
 
+func TestYTDLPDownloader_GetPlaylist_InvalidJSONLinesOnly(t *testing.T) {
+	downloader := NewYTDLPDownloader(t.TempDir())
+	downloader.setCommandRunner(&fakeCommandRunner{
+		runFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return []byte("not-json\nstill-not-json"), nil
+		},
+	})
+
+	_, err := downloader.GetPlaylist(context.Background(), "https://youtube.com/playlist?list=test")
+	if err == nil {
+		t.Fatal("Expected error for invalid playlist JSON lines")
+	}
+	if !errors.Is(err, ErrNotAPlaylist) {
+		t.Errorf("Expected ErrNotAPlaylist, got %v", err)
+	}
+}
+
 func TestYTDLPDownloader_GetPlaylist_ExecutionError(t *testing.T) {
 	downloader := NewYTDLPDownloader(t.TempDir())
 	downloader.setCommandRunner(&fakeCommandRunner{
