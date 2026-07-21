@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -145,9 +146,17 @@ func createJobHandler(svc jobCreateService, queueSvc queuePublisher, dl download
 
 		// Check if the URL is a playlist
 		var playlist *downloader.Playlist
-		var err error
-		if dl != nil { playlist, err = dl.GetPlaylist(c.Request.Context(), req.SourceURL) }
-		if err != nil || playlist == nil || len(playlist.Entries) == 0 {
+		var playlistErr error
+		if dl != nil {
+			playlist, playlistErr = dl.GetPlaylist(c.Request.Context(), req.SourceURL)
+		}
+		if playlistErr != nil && !errors.Is(playlistErr, downloader.ErrNotAPlaylist) {
+			_ = svc.UpdateJobStatus(c.Request.Context(), resp.ID.String(), "FAILED", "failed to fetch playlist")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch playlist"})
+			return
+		}
+
+		if playlistErr != nil || playlist == nil || len(playlist.Entries) == 0 {
 			// Not a playlist or failed to fetch, treat as single video
 			if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), []jobs.MediaItemInput{
 				{Title: "Source Media", SourceURL: req.SourceURL},

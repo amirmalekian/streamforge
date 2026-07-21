@@ -188,3 +188,28 @@ func TestCreateJobHandler_PlaylistCreatesMultipleItems(t *testing.T) {
 	assert.Equal(t, "https://example.com/video3", svc.createdItems[2].SourceURL)
 	assert.Len(t, queueSvc.messages, 1)
 }
+
+func TestCreateJobHandler_PlaylistFetchErrorMarksFailed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := &fakeJobCreateService{jobID: uuid.New()}
+	queueSvc := &fakeQueuePublisher{}
+	dl := &fakeDownloader{err: errors.New("yt-dlp failed")}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("user_id", uuid.New().String())
+		c.Next()
+	})
+	router.POST("/jobs", createJobHandler(svc, queueSvc, dl))
+
+	body, _ := json.Marshal(map[string]string{"source_url": "https://example.com/playlist"})
+	req := httptest.NewRequest(http.MethodPost, "/jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, []string{"FAILED"}, svc.statusUpdates)
+	assert.Empty(t, svc.createdItems)
+	assert.Empty(t, queueSvc.messages)
+}

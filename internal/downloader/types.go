@@ -2,7 +2,10 @@ package downloader
 
 import (
 	"context"
+	"errors"
 )
+
+var ErrNotAPlaylist = errors.New("not a playlist")
 
 type Item struct {
 	ID    string
