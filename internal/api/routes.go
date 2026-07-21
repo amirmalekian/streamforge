@@ -144,7 +144,9 @@ func createJobHandler(svc jobCreateService, queueSvc queuePublisher, dl download
 		}
 
 		// Check if the URL is a playlist
-		playlist, err := dl.GetPlaylist(c.Request.Context(), req.SourceURL)
+		var playlist *downloader.Playlist
+		var err error
+		if dl != nil { playlist, err = dl.GetPlaylist(c.Request.Context(), req.SourceURL) }
 		if err != nil || playlist == nil || len(playlist.Entries) == 0 {
 			// Not a playlist or failed to fetch, treat as single video
 			if err := svc.CreateMediaItems(c.Request.Context(), resp.ID.String(), []jobs.MediaItemInput{

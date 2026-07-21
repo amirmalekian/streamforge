@@ -203,10 +203,11 @@ func (d *YTDLPDownloader) GetPlaylist(ctx context.Context, url string) (*Playlis
 		return nil, fmt.Errorf("yt-dlp playlist failed: %w", err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 0 {
-		return nil, fmt.Errorf("no playlist entries found")
-	}
+trimmed := strings.TrimSpace(string(output))
+if trimmed == "" {
+	return nil, fmt.Errorf("no playlist entries found")
+}
+lines := strings.Split(trimmed, "\n")
 
 	var entries []PlaylistEntry
 	var playlistID, playlistTitle string
@@ -217,7 +218,7 @@ func (d *YTDLPDownloader) GetPlaylist(ctx context.Context, url string) (*Playlis
 			continue
 		}
 
-		if i == 0 {
+		if playlistID == "" && playlistTitle == "" {
 			playlistID = info.ID
 			playlistTitle = info.Title
 		}
