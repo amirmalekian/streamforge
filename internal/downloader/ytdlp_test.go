@@ -261,6 +261,86 @@ func TestYTDLPDownloader_GetMetadata_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestYTDLPDownloader_GetPlaylist_EmptyOutput(t *testing.T) {
+	downloader := NewYTDLPDownloader(t.TempDir())
+	downloader.setCommandRunner(&fakeCommandRunner{
+		runFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return []byte(" \n\t "), nil
+		},
+	})
+
+	_, err := downloader.GetPlaylist(context.Background(), "https://youtube.com/playlist?list=test")
+	if err == nil {
+		t.Fatal("Expected error for empty playlist output")
+	}
+	if !errors.Is(err, ErrNotAPlaylist) {
+		t.Errorf("Expected ErrNotAPlaylist, got %v", err)
+	}
+}
+
+func TestYTDLPDownloader_GetPlaylist_SuccessWithInvalidJSONLines(t *testing.T) {
+	downloader := NewYTDLPDownloader(t.TempDir())
+	downloader.setCommandRunner(&fakeCommandRunner{
+		runFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return []byte(`not-json
+{"id":"entry1","title":"First","url":"https://youtube.com/watch?v=entry1"}
+{"id":"entry2","title":"Second","url":"https://youtube.com/watch?v=entry2"}`), nil
+		},
+	})
+
+	playlist, err := downloader.GetPlaylist(context.Background(), "https://youtube.com/playlist?list=test")
+	if err != nil {
+		t.Fatalf("GetPlaylist failed: %v", err)
+	}
+	if playlist.ID != "entry1" {
+		t.Errorf("Expected playlist ID entry1, got %s", playlist.ID)
+	}
+	if playlist.Title != "First" {
+		t.Errorf("Expected playlist title First, got %s", playlist.Title)
+	}
+	if len(playlist.Entries) != 2 {
+		t.Fatalf("Expected 2 entries, got %d", len(playlist.Entries))
+	}
+	if playlist.Entries[0].ID != "entry1" || playlist.Entries[1].ID != "entry2" {
+		t.Errorf("Unexpected playlist entries: %+v", playlist.Entries)
+	}
+}
+
+func TestYTDLPDownloader_GetPlaylist_ExecutionError(t *testing.T) {
+	downloader := NewYTDLPDownloader(t.TempDir())
+	downloader.setCommandRunner(&fakeCommandRunner{
+		runFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return nil, errors.New("yt-dlp not found")
+		},
+	})
+
+	_, err := downloader.GetPlaylist(context.Background(), "https://youtube.com/playlist?list=test")
+	if err == nil {
+		t.Fatal("Expected error when yt-dlp execution fails")
+	}
+}
+
+func TestYTDLPDownloader_GetPlaylist_ContextCancelled(t *testing.T) {
+	downloader := NewYTDLPDownloader(t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	downloader.setCommandRunner(&fakeCommandRunner{
+		runFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+			return nil, context.Canceled
+		},
+	})
+
+	_, err := downloader.GetPlaylist(ctx, "https://youtube.com/playlist?list=test")
+	if err == nil {
+		t.Fatal("Expected error when context is cancelled")
+	}
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Expected context cancellation error, got: %v", err)
+	}
+}
+
 func TestYTDLPDownloader_DownloadWithContext_ContextCancelled(t *testing.T) {
 	tempDir := t.TempDir()
 	downloader := NewYTDLPDownloader(tempDir)
