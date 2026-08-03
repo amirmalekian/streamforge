@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	redisv9 "github.com/redis/go-redis/v9"
 
 	"streamforge/internal/auth"
 	"streamforge/internal/downloader"
@@ -16,6 +17,11 @@ import (
 	"streamforge/internal/queue"
 	"streamforge/internal/redis"
 )
+
+// progressGetter is the minimal interface currentProgress needs.
+type progressGetter interface {
+	GetProgress(ctx context.Context, jobID string) (*redis.Progress, error)
+}
 
 type jobCreateService interface {
 	CreateJob(ctx context.Context, userID, sourceURL string) (*jobs.JobResponse, error)
@@ -350,12 +356,65 @@ func sseHandler(svc *jobs.Service, redisClient *redis.Client) gin.HandlerFunc {
 
 		svc.Subscribe(c.Request.Context(), jobID, clientChan)
 
+		// Subscribe to the job's Redis event channel so progress published by a
+		// separate worker process is forwarded into this stream.
+		if redisClient != nil {
+			pubsub := redisClient.SubscribeJobEvents(c.Request.Context(), jobID)
+			go func() { <-c.Request.Context().Done(); _ = pubsub.Close() }()
+			go forwardRedisEvents(c.Request.Context(), pubsub.Channel(), clientChan)
+		}
+
 		// Send initial connection event
 		c.SSEvent("connected", gin.H{"job_id": jobID, "status": job.Status})
 		c.Writer.Flush()
 
+		// Replay current progress so a client that connects mid-job immediately
+		// sees the latest state instead of waiting for the next event.
+		if progress, ok := currentProgress(redisClient, c.Request.Context(), jobID); ok {
+			c.SSEvent("progress", progress)
+			c.Writer.Flush()
+		}
+
 		// Keep connection alive
 		<-c.Request.Context().Done()
+	}
+}
+
+// currentProgress returns the latest stored progress for the job, or
+// (nil, false) when Redis is unavailable or no progress exists yet.
+func currentProgress(redisClient progressGetter, ctx context.Context, jobID string) (*redis.Progress, bool) {
+	if redisClient == nil {
+		return nil, false
+	}
+
+	progress, err := redisClient.GetProgress(ctx, jobID)
+	if err != nil || progress == nil {
+		return nil, false
+	}
+
+	return progress, true
+}
+
+// forwardRedisEvents drains Redis pub/sub messages and forwards their payloads
+// to out. It stops when ctx is done or the pubsub channel is closed.
+func forwardRedisEvents(ctx context.Context, in <-chan *redisv9.Message, out chan<- string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-in:
+			if !ok {
+				return
+			}
+			if msg == nil {
+				continue
+			}
+			select {
+			case out <- msg.Payload:
+			case <-ctx.Done():
+				return
+			}
+		}
 	}
 }
 
